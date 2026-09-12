@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/wsc0796/java-async-learning",
+  "exported_material_files": 59,
+  "reference_source_files": 22,
+  "excluded": [
+    "personal learning records",
+    "Obsidian configuration",
+    "compiled classes",
+    "unrelated original materials"
+  ]
+}

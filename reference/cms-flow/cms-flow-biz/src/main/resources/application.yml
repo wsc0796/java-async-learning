@@ -1,0 +1,205 @@
+server:
+  # 应用 HTTP 监听端口
+  port: 8080
+
+spring:
+  application:
+    # Spring Boot 应用名，用于日志、监控和服务标识
+    name: cms-flow
+  autoconfigure:
+    exclude:
+      # 禁用 Spring Boot Redis 客户端自动配置；当前示例只使用进程内 L1 缓存
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      # 禁用 Spring Data Redis Repository 自动配置
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 通过 HTTP 暴露健康检查和 Flow 线程池监控端点
+        include: health,cmsFlowExecutors
+
+cms:
+  flow:
+    http:
+      urls:
+        # 内容节点的批量查询接口；key 与 ContentNodeSpec 中的 urlKey 对应
+        content-batch: http://localhost:8081/stub/content/batch
+        # 商品节点的批量查询接口；key 与 GoodsNodeSpec 中的 urlKey 对应
+        goods-batch: http://localhost:8081/stub/goods/batch
+        # 价格节点的批量查询接口；key 与 PriceNodeSpec 中的 urlKey 对应
+        price-batch: http://localhost:8081/stub/price/batch
+    executor:
+      # DAG 编排线程池，只负责节点调度，不执行具体的下游调用
+      dag-scheduler:
+        # 常驻核心线程数
+        core-pool-size: 8
+        # 任务繁忙时允许创建的最大线程数
+        max-pool-size: 32
+        # 等待执行的任务队列容量
+        queue-capacity: 512
+      # NORMAL 节点调用池，未指定 FAST/SLOW 的节点默认使用
+      # use-virtual-threads: true 时为无界 VT（无背压配置）；false 时用下方平台池参数
+      node-invoke:
+        # true 使用虚拟线程；false 使用传统平台线程池
+        use-virtual-threads: false
+        # 以下三项仅在 use-virtual-threads: false 时生效
+        core-pool-size: 16
+        max-pool-size: 32
+        queue-capacity: 256
+      # FAST 节点专用平台线程池，用于隔离耗时短、关键链路节点
+      fast-node-invoke:
+        # 常驻核心线程数
+        core-pool-size: 8
+        # 任务繁忙时允许创建的最大线程数
+        max-pool-size: 32
+        # 等待执行的任务队列容量
+        queue-capacity: 128
+      # SLOW 为无界 VT，无需配置
+      # 缓存写入等非主链路副作用任务使用的线程池
+      side-effect:
+        # 常驻核心线程数
+        core-pool-size: 2
+        # 任务繁忙时允许创建的最大线程数
+        max-pool-size: 4
+        # 等待执行的任务队列容量；队列满时副作用任务允许被丢弃
+        queue-capacity: 128
+    # 失败兜底（LKG，Last Known Good）配置，与成功响应缓存相互独立
+    fallback:
+      # 失败兜底总开关
+      enabled: true
+      # 成功结果写入 LKG 的采样万分比；5000 表示约 50%
+      write-sample-rate: 5000
+      cache:
+        # LKG 缓存 key 前缀，避免与其他缓存命名冲突
+        key-prefix: "cms-flow:fb"
+        # 池仅配置容量；TTL 必须在 dags / nodes 上按 level 显式配置
+        dag:
+          # 整图 L1 Caffeine 缓存允许保存的最大条目数
+          l1-max-size: 1000
+        node:
+          # 节点 L1 Caffeine 缓存允许保存的最大条目数
+          l1-max-size: 10000
+      # 按 DAG 配置兜底策略，key 为 dagKey
+      dags:
+        # goodsCard DAG 的整图及节点兜底策略
+        goodsCard:
+          # 整图兜底层级：L1=进程内 Caffeine，L2=Redis，L1_L2=两级缓存
+          level: L1
+          # 整图 L1 兜底数据的有效期，单位秒
+          l1-ttl-seconds: 600
+          # 本 DAG 使用各节点时，是否启用「节点级」兜底（可与其它 DAG 不同）
+          nodes:
+            # 内容节点兜底策略
+            contentNode:
+              # 是否启用该节点的 LKG 读写
+              enabled: true
+              # 节点兜底缓存层级
+              level: L1
+              # 节点 L1 兜底数据有效期，单位秒
+              l1-ttl-seconds: 300
+            # 商品节点兜底策略
+            goodsNode:
+              # 是否启用该节点的 LKG 读写
+              enabled: true
+              # 节点兜底缓存层级
+              level: L1
+              # 节点 L1 兜底数据有效期，单位秒
+              l1-ttl-seconds: 300
+            # 价格节点兜底策略
+            priceNode:
+              # 是否启用该节点的 LKG 读写
+              enabled: true
+              # 节点兜底缓存层级
+              level: L1
+              # 节点 L1 兜底数据有效期，单位秒
+              l1-ttl-seconds: 300
+    # 成功路径响应缓存（与 fallback LKG 隔离，前缀 cms-flow:rc）
+    cache:
+      # 成功响应缓存总开关；false 时下方策略均不生效
+      enabled: false
+      # TTL 随机抖动比例；0.1 表示在基础 TTL 上打散 10%，防止缓存集中失效
+      ttl-jitter-ratio: 0.1
+      # 成功结果写缓存的采样万分比；10000 表示全部写入
+      write-sample-rate: 10000
+      # 成功但 data=null 时使用短 TTL 缓存，防止缓存穿透
+      null-cache:
+        # 是否缓存空结果
+        enabled: true
+        # 空结果在 L1 中的有效期，单位秒
+        l1-ttl-seconds: 30
+        # 空结果在 L2 Redis 中的有效期，单位秒
+        l2-ttl-seconds: 60
+      # SWR（stale-while-revalidate）后台刷新配置
+      refresh:
+        # 是否允许对软过期缓存执行后台刷新
+        enabled: true
+        # 同一缓存 key 两次后台刷新的最小间隔，单位秒
+        min-interval-seconds: 30
+        # 后台刷新启动的最大随机延迟，单位毫秒，避免并发集中刷新
+        start-jitter-ms: 2000
+      cache:
+        # 成功响应缓存 key 前缀
+        key-prefix: "cms-flow:rc"
+        # 池仅配置容量；TTL 必须在 dags / nodes 上按 level 显式配置
+        dag:
+          # 整图 L1 Caffeine 缓存允许保存的最大条目数
+          l1-max-size: 1000
+        node:
+          # 节点 L1 Caffeine 缓存允许保存的最大条目数
+          l1-max-size: 10000
+      # 按 DAG 配置成功响应缓存策略，key 为 dagKey
+      dags:
+        # goodsCard DAG 的整图及节点响应缓存策略
+        goodsCard:
+          # 整图缓存层级：L1=进程内 Caffeine，L2=Redis，L1_L2=两级缓存
+          level: L1
+          # 整图 L1 缓存硬过期时间，单位秒
+          l1-ttl-seconds: 60
+          # 软过期时间，单位秒；到期后可返回旧值并后台刷新，须小于硬 TTL
+          soft-ttl-seconds: 30
+          nodes:
+            # 内容节点响应缓存策略
+            contentNode:
+              # 是否启用该节点的成功响应缓存
+              enabled: true
+              # 节点响应缓存层级
+              level: L1
+              # 节点 L1 缓存有效期，单位秒
+              l1-ttl-seconds: 30
+            # 商品节点响应缓存策略
+            goodsNode:
+              # 是否启用该节点的成功响应缓存
+              enabled: true
+              # 节点响应缓存层级
+              level: L1
+              # 节点 L1 缓存有效期，单位秒
+              l1-ttl-seconds: 30
+            # 价格节点响应缓存策略
+            priceNode:
+              # 是否启用该节点的成功响应缓存
+              enabled: true
+              # 节点响应缓存层级
+              level: L1
+              # 节点 L1 缓存有效期，单位秒
+              l1-ttl-seconds: 30
+    # Resilience4j 熔断配置，保护下游异常时的主调用链路
+    resilience:
+      # 熔断功能总开关
+      enabled: true
+      # 统计最近调用结果的滑动窗口大小
+      sliding-window-size: 10
+      # 失败率阈值，单位百分比；达到 50% 时打开熔断器
+      failure-rate-threshold: 50
+      # 熔断器 OPEN 状态持续时间，单位毫秒，之后进入 HALF_OPEN
+      wait-duration-in-open-state-ms: 5000
+      # 至少积累多少次调用后才开始计算失败率
+      minimum-number-of-calls: 5
+      # HALF_OPEN 状态允许的探测调用次数
+      permitted-number-of-calls-in-half-open-state: 3
+
+logging:
+  level:
+    # cms-flow 项目包的日志级别
+    com.cms.flow: INFO
