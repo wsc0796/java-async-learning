@@ -1,7 +1,7 @@
 # 线程池与异步编程：扩展机制 × cms-flow 的 8 小时课程
 
-> 公开教材仓库：[网页端GPT阅读入口](GPT_WEB_START.md) · [合并版课程](GPT_COURSE.md) · [源码合并版](GPT_SOURCE.md)
-> 本仓库是可复用学习材料。进度与练习记录仅为空白模板；reference为选取的阅读快照。
+> 公开教材仓库：[当前学习接续](GPT_CONTINUE.md) · [网页端GPT阅读入口](GPT_WEB_START.md) · [合并版课程](GPT_COURSE.md) · [源码合并版](GPT_SOURCE.md)
+> 本仓库是可复用学习材料。学习记录正文仍为空白模板；`AI_HANDOFF/`保存当前课程接续所需的精炼检查点，reference为选取的阅读快照。
 
 所有运行命令从仓库根目录执行。Windows可以使用`& '.\实验\run.ps1' -Case all`；macOS/Linux或其他环境可以使用JDK单文件方式`java 实验/AsyncLab.java threads`（需要JDK 21+）。
 

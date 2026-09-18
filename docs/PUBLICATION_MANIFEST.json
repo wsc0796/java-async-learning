@@ -1,6 +1,9 @@
 {
   "repository": "https://github.com/wsc0796/java-async-learning",
   "exported_material_files": 59,
+  "learning_handoff_files": 3,
+  "repository_files_after_handoff": 63,
+  "learning_handoff_updated_at": "2026-09-18",
   "reference_source_files": 22,
   "excluded": [
     "personal learning records",
