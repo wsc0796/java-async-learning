@@ -9,8 +9,8 @@
 | S3 线程池参数与回调 | UNDERSTOOD | 能推演 core→queue→max→reject，比较 Abort/Discard/CallerRuns，区分 ThreadFactory 与拒绝处理器 |
 | S4 Future 与 DAG | UNDERSTOOD | 能区分 `supplyAsync`提交、Future句柄、`allOf`完成信号和`join`等待，并解释双层 join 与波次屏障 |
 | S5 异步日志与职责隔离 | UNDERSTOOD | 用户提供的GPT会话总结标记完成：能区分业务成功、任务接纳、最终成功及失败/延迟隔离 |
-| S6 异常、超时与取消 | IN_PROGRESS | 异常传播、处理方法和等待超时已覆盖；cancel/interrupt正在开始 |
-| S7 虚拟线程与许可 | NOT_ASSESSED | 待学习 |
+| S6 异常、超时与取消 | UNDERSTOOD | 用户提供的GPT会话已完成cancel/interrupt验收，能区分取消、interrupt、协作退出和业务副作用 |
+| S7 虚拟线程与许可 | IN_PROGRESS | 已进入S7；第一道虚拟线程与数据库连接池容量题尚未回答 |
 | S8 配置、关闭与迁移验收 | NOT_ASSESSED | 待学习 |
 
 ## 已纠正且应保留的关键模型
@@ -62,27 +62,32 @@ return result;
 - `CallerRunsPolicy`可能让HTTP提交线程亲自执行日志任务，从而破坏延迟隔离。
 - `try/catch`可以隔离异常传播，但不能自动隔离耗时。
 
-S6已覆盖：
+S6已完成：
 
 - worker中的异常先记录到Future；main只有观察Future时才感知。
 - Future已经失败，不等于main已经知道失败。
 - `exceptionally`用于失败恢复，`whenComplete`主要观察，`handle`可统一转换成功/失败。
 - `future.get(timeout)`只限制调用方等待；等待超时不等于任务超时或任务停止。
-- 当前刚进入cancel/interrupt，尚未完成验收。
+- `CompletableFuture.cancel(true)`的`true`不会因此interrupt worker；普通`Future.cancel(true)`会尝试interrupt正在执行任务的线程。
+- interrupt是协作信号，不是强制杀线程；阻塞型代码可通过`InterruptedException`响应，CPU型代码需要主动检查中断状态。
+- Future已取消、worker收到interrupt、任务实际停止、业务副作用停止是四个独立状态。
+- `cancel(true)`不会自动撤销已经提交的数据库更新或已发送MQ消息。
+- 能用Future状态、中断观察点、任务结束日志和业务副作用分别验证这些层次。
+- `InterruptedException`清除中断标记、`Thread.interrupted()`读取并清除等API细节已校准，不阻塞后续学习。
 
 ## 下一道未回答问题
 
 直接从这里继续，不要先讲答案：
 
-> `CompletableFuture.runAsync(...)`提交的任务已经开始运行并停在一个可释放的等待点。此时调用`future.cancel(true)`：Future会显示什么状态？执行任务的线程一定会收到interrupt吗？底层任务一定会停止吗？请分别预测，并说明需要观察哪些证据才能下结论。
+> Java 21中通过`Executors.newVirtualThreadPerTaskExecutor()`提交1000个都要访问数据库的任务，而数据库连接池`maximumPoolSize=20`。数据库能不能同时处理1000个查询？如果不能，多出来的约980个任务可能在干什么？先按理解回答，不要求知道Semaphore API。
 
 ## 后续路线
 
-1. 完成S6 cancel/interrupt：Future状态、线程中断和任务实际停止三者分开观察。
-2. S6验收：解释“取消请求”为什么不是强制杀死任务，以及代码如何协作响应中断。
-3. S7：虚拟线程适用边界、Semaphore许可、三条释放路径。
+1. 完成S7第一模型：虚拟线程降低线程成本，但不增加数据库、HTTP下游或连接池容量。
+2. 学习Semaphore并发许可、获取失败/等待、任务完成与提交失败三条释放路径。
+3. S7验收：解释虚拟线程、连接池、Semaphore与背压分别控制什么。
 4. S8：配置约束、禁用、有界关闭、迁移表与总验收。
 
 ## 证据边界
 
-S5完成及S6前半段来自用户粘贴的网页端GPT阶段总结，作为跨端交接记录；当前仓库未把这些内容伪装成Codex重新运行或逐题验收的结果。
+S5/S6完成状态来自用户粘贴的网页端GPT阶段总结，作为跨端交接记录；当前仓库未把这些内容伪装成Codex重新运行或逐题验收的结果。
