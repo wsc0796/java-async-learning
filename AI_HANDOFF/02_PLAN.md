@@ -8,8 +8,8 @@
 | S2 注解、处理器与同步 AOP | UNDERSTOOD | 能说明注解是元数据、Aspect是处理器、外部代理调用与内部自调用不同，AOP增强不等于切线程 |
 | S3 线程池参数与回调 | UNDERSTOOD | 能推演 core→queue→max→reject，比较 Abort/Discard/CallerRuns，区分 ThreadFactory 与拒绝处理器 |
 | S4 Future 与 DAG | UNDERSTOOD | 能区分 `supplyAsync`提交、Future句柄、`allOf`完成信号和`join`等待，并解释双层 join 与波次屏障 |
-| S5 异步日志与职责隔离 | IN_PROGRESS | 正在区分业务成功、任务接纳、Sink输出成功及拒绝策略对请求线程的影响 |
-| S6 异常、超时与取消 | NOT_ASSESSED | 待学习 |
+| S5 异步日志与职责隔离 | UNDERSTOOD | 用户提供的GPT会话总结标记完成：能区分业务成功、任务接纳、最终成功及失败/延迟隔离 |
+| S6 异常、超时与取消 | IN_PROGRESS | 异常传播、处理方法和等待超时已覆盖；cancel/interrupt正在开始 |
 | S7 虚拟线程与许可 | NOT_ASSESSED | 待学习 |
 | S8 配置、关闭与迁移验收 | NOT_ASSESSED | 待学习 |
 
@@ -38,7 +38,7 @@
 
 ## 当前精确检查点
 
-S5使用以下模型：
+S5已完成，核心模型是：
 
 ```java
 Object result = proceed();
@@ -53,23 +53,36 @@ try {
 return result;
 ```
 
-已完成的判断：
+已完成的判断包括：
 
 - 业务方法返回后，业务成功可以确认。
 - 在执行器采用明确拒绝策略时，`execute()`正常返回表示任务被接纳，但不表示已经输出。
 - `logSink.write`仍在工作线程阻塞时，最终输出是否成功尚不能确认。
 - 如果使用 DiscardPolicy，`execute()`正常返回也不能证明任务被接纳。
+- `CallerRunsPolicy`可能让HTTP提交线程亲自执行日志任务，从而破坏延迟隔离。
+- `try/catch`可以隔离异常传播，但不能自动隔离耗时。
+
+S6已覆盖：
+
+- worker中的异常先记录到Future；main只有观察Future时才感知。
+- Future已经失败，不等于main已经知道失败。
+- `exceptionally`用于失败恢复，`whenComplete`主要观察，`handle`可统一转换成功/失败。
+- `future.get(timeout)`只限制调用方等待；等待超时不等于任务超时或任务停止。
+- 当前刚进入cancel/interrupt，尚未完成验收。
 
 ## 下一道未回答问题
 
 直接从这里继续，不要先讲答案：
 
-> 日志线程池已经饱和，拒绝策略是 `CallerRunsPolicy`，提交线程是 `http-1`，而 `logSink.write(record)` 会阻塞3秒。虽然代码没有调用 `join()`，HTTP响应还会不会被日志阻塞？任务最终由谁执行，为什么？
+> `CompletableFuture.runAsync(...)`提交的任务已经开始运行并停在一个可释放的等待点。此时调用`future.cancel(true)`：Future会显示什么状态？执行任务的线程一定会收到interrupt吗？底层任务一定会停止吗？请分别预测，并说明需要观察哪些证据才能下结论。
 
 ## 后续路线
 
-1. 完成 CallerRunsPolicy 对隔离目标的影响，并比较适合关键任务与旁路任务的拒绝语义。
-2. S5验收：解释业务成功、提交接纳、输出成功三种状态，以及为什么主链只异步提交一次。
-3. S6：拒绝、任务异常、业务失败、等待超时、Future状态和实际资源占用。
-4. S7：虚拟线程适用边界、Semaphore许可、三条释放路径。
-5. S8：配置约束、禁用、有界关闭、迁移表与总验收。
+1. 完成S6 cancel/interrupt：Future状态、线程中断和任务实际停止三者分开观察。
+2. S6验收：解释“取消请求”为什么不是强制杀死任务，以及代码如何协作响应中断。
+3. S7：虚拟线程适用边界、Semaphore许可、三条释放路径。
+4. S8：配置约束、禁用、有界关闭、迁移表与总验收。
+
+## 证据边界
+
+S5完成及S6前半段来自用户粘贴的网页端GPT阶段总结，作为跨端交接记录；当前仓库未把这些内容伪装成Codex重新运行或逐题验收的结果。
